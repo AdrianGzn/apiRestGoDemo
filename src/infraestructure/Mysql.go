@@ -1,56 +1,96 @@
 package infraestructure
-import "fmt"
-import "demob/src/domain"
-import "errors"
+
+import (
+	"database/sql"
+	"demob/src/domain"
+	"errors"
+	"fmt"
+
+	_ "github.com/go-sql-driver/mysql"
+)
 
 type Mysql struct {
-	products []domain.Product
+	DB *sql.DB
 }
+
 
 func NewMysql() *Mysql {
-	return &Mysql{}
+	dsn := "goUser:goPass123@tcp(54.91.181.99:3306)/demo_db"
+
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		panic("Error al conectar a MySQL: " + err.Error())
+	}
+
+	if err := db.Ping(); err != nil {
+		panic("MySQL no responde: " + err.Error())
+	}
+
+	fmt.Println("Conectado a MySQL correctamente ✔")
+
+	return &Mysql{DB: db}
 }
+
 
 func (mysql *Mysql) Save(product domain.Product) error {
-	mysql.products = append(mysql.products, product)
-	fmt.Println("Product saved:", product)
+
+	query := "INSERT INTO products (name, price, stock, created_at) VALUES (?, ?, ?, ?)"
+
+	_, err := mysql.DB.Exec(query,
+		product.GetName(),
+		product.GetPrice(),
+		product.GetStock(),
+		product.GetCreatedAt(),
+	)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
-} 
+}
+
 
 func (mysql *Mysql) GetAll() ([]domain.Product, error) {
-	return mysql.products, nil
+
+	rows, err := mysql.DB.Query("SELECT id, name, price, stock, created_at FROM products")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var products []domain.Product
+
+	for rows.Next() {
+		var p domain.Product
+
+		err := rows.Scan(&p.ID, &p.Name, &p.Price, &p.Stock, &p.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		products = append(products, p)
+	}
+
+	return products, nil
 }
+
 
 func (mysql *Mysql) GetByID(id int32) (*domain.Product, error) {
-	for _, myProduct := range mysql.products {
-		if myProduct.GetId() == id {
-			return &myProduct, nil
-		}
-	}
-	
-	return nil, errors.New("Producto no encontrado")
-}
 
-func (mysql *Mysql) Update(id int32, updatedProduct domain.Product) error {
-	for i, myProduct := range mysql.products {
-		if myProduct.GetId() == id {
-			mysql.products[i] = updatedProduct
-			fmt.Println("Product: ", updatedProduct)
-			return nil
-		}
+	query := "SELECT id, name, price, stock, created_at FROM products WHERE id = ?"
+
+	var p domain.Product
+
+	err := mysql.DB.QueryRow(query, id).
+		Scan(&p.ID, &p.Name, &p.Price, &p.Stock, &p.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, errors.New("producto no encontrado")
+	} else if err != nil {
+		return nil, err
 	}
 
-	return errors.New("Producto no encontrado")
-}
-
-func (mysql *Mysql) Delete(id int32) error {
-	for i, myProduct := range mysql.products {
-		if myProduct.GetId() == id {
-			mysql.products = append(mysql.products[:i], mysql.products[i+1:]...)
-			fmt.Println("Producto eliminado: ", id)
-			return nil
-		}
-	}
-	
-	return errors.New("Producto no encontrado")
+	return &p, nil
 }
